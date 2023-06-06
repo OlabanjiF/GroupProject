@@ -1,0 +1,50 @@
+# Import TFF and TensorFlow libraries
+import tensorflow as tf
+import tensorflow_federated as tff
+
+# Define the model using Keras
+def create_keras_model():
+  return tf.keras.models.Sequential([
+      tf.keras.layers.Input(shape=(784,)),
+      tf.keras.layers.Dense(10, kernel_initializer='zeros'),
+      tf.keras.layers.Softmax(),
+  ])
+
+# Define the model function for TFF
+def model_fn():
+  # Create a Keras model
+  keras_model = create_keras_model()
+  # Wrap it with TFF
+  return tff.learning.from_keras_model(
+      keras_model,
+      input_spec=preprocessed_example_dataset.element_spec,
+      loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+      metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+
+# Load and preprocess the EMNIST dataset
+emnist_train, emnist_test = tff.simulation.datasets.emnist.load_data()
+def preprocess(dataset):
+  def element_fn(element):
+    return (tf.reshape(element['pixels'], [-1, 784]), element['label'])
+  return dataset.repeat(NUM_EPOCHS).map(element_fn).batch(BATCH_SIZE)
+example_dataset = emnist_train.create_tf_dataset_for_client(
+    emnist_train.client_ids[0])
+preprocessed_example_dataset = preprocess(example_dataset)
+
+# Define the federated averaging process
+iterative_process = tff.learning.build_federated_averaging_process(
+    model_fn,
+    client_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=0.02))
+
+# Create a local TFF server
+server_state = iterative_process.initialize()
+
+# Run the federated computation on the server
+for round_num in range(1, NUM_ROUNDS + 1):
+  sampled_clients = np.random.choice(
+      emnist_train.client_ids,
+      size=NUM_CLIENTS,
+      replace=False)
+  federated_train_data = make_federated_data(emnist_train, sampled_clients)
+  server_state, metrics = iterative_process.next(server_state, federated_train_data)
+  print('round {:2d}, metrics={}'.format(round_num, metrics))
